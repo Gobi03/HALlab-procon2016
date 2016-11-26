@@ -7,7 +7,7 @@
 ///             利用条件に従ってください
 //------------------------------------------------------------------------------
 
-// ver2.3
+// ver3.0 (after contest)
 
 #include "Answer.hpp"
 
@@ -15,6 +15,7 @@
 #include <iostream>
 using namespace std;
 
+#define PI 3.141592653589
 #define FOR(i,a,b) for(int i=(a);i<(b);++i)
 #define UNSFOR(i,a,b) for(unsigned int i=(a);i<(b);++i)
 #define REP(i,n)  FOR(i,0,n)
@@ -77,52 +78,93 @@ namespace hpc {
   }
 
 
+  // private function
+  float decideShootTurgetAid(Vector2 asteroPos00, Vector2 myshipPos, int shoootedShipInd, const Stage& aStage){
+    // 射線に巻き込まれる惑星の距離の合計
+    float res = 0;
+
+    // asteroPos との半直線をx座標に合わせる
+    // 角度が知りたい
+    float angle = Vector2(100, 0).angle(asteroPos00);
+    if(asteroPos00.y < 0)
+      angle = -angle;
+        
+    // x 座標が規定の範囲を守っているものの中から、半直線と円(惑星)の距離を取って撃てるかチェック                
+    REP(k, aStage.asteroidCount()){
+      if(k != shoootedShipInd && aStage.asteroid(k).exists()) {
+        // x 座標が規定の範囲を守っているものの中から、半直線と円(惑星)の距離を取って撃てるかチェック
+        Vector2 kPos00 = aStage.asteroid(k).pos() - myshipPos;
+        Vector2 kPos00Rotated = kPos00.getRotatedRad(-angle);
+        if(kPos00Rotated.x > 0){
+          float asteroBeamDist = abs(kPos00Rotated.y);
+          if(asteroBeamDist <= aStage.asteroid(k).radius()){
+            res += kPos00Rotated.length();
+          }
+        }
+      }
+    }
+    return res;
+  }
+
   // 射撃のターゲット決める関数
-  int decideShootTurget(const Stage& aStage){
+  Vector2 decideShootTurget(const Stage& aStage){
     Vector2 myshipPos = aStage.ship().pos();
     
-    int index = -1;
+    Vector2 shootPos = Vector2();
     float distSum = -10;
 
-    // 同時に打てる惑星の数が最も多いパターンの中で、撃たれる星が船から最も遠くにあるものを選ぶ
+    // 自船からの距離の和が最も大きい物を選ぶ
     REP(i, aStage.asteroidCount()){
       if(aStage.asteroid(i).exists()) {
         // 今見る惑星のPos
         Vector2 asteroPos = aStage.asteroid(i).pos();
-        Vector2 asteroPos00 = asteroPos - myshipPos;
         float nowDist = asteroPos.dist(myshipPos);
 
-        // asteroPos との半直線をx座標に合わせる
-        // 角度が知りたい
-        float angle = Vector2(100, 0).angle(asteroPos00);
-        if(asteroPos00.y < 0)
-          angle = -angle;
+        // center of asteroid
+        float centerDistSum = nowDist * nowDistRate;
+          
+        Vector2 asteroPos00 = asteroPos - myshipPos;
         
-        // x 座標が規定の範囲を守っているものの中から、半直線と円(惑星)の距離を取って撃てるかチェック                
-        float kDistSum = nowDist * nowDistRate;
-        REP(k, aStage.asteroidCount()){
-          if(k != i && aStage.asteroid(k).exists()) {
-            // x 座標が規定の範囲を守っているものの中から、半直線と円(惑星)の距離を取って撃てるかチェック
-            Vector2 kPos00 = aStage.asteroid(k).pos() - myshipPos;
-            Vector2 kPos00Rotated = kPos00.getRotatedRad(-angle);
-            if(kPos00Rotated.x > 0){
-              float asteroBeamDist = abs(kPos00Rotated.y);
-              if(asteroBeamDist <= aStage.asteroid(k).radius()){
-                kDistSum += kPos00Rotated.length();
-              }
-            }
-          }
+        // in roop
+        centerDistSum +=
+          decideShootTurgetAid(asteroPos00, myshipPos, i, aStage);
+        
+        // 数が最も多いものを選ぶ
+        if(centerDistSum > distSum){
+          distSum = centerDistSum;
+          shootPos = asteroPos;
         }
 
-        // 数が最も多いものを選ぶ
-        if(kDistSum > distSum){
-          distSum = kDistSum;
-          index = i;
+        // 惑星内に散らしてプロットして射撃をシミュレート
+        REP(radRate, 8){
+          // ８方向
+          Vector2 baseVector = Vector2(0.95, 0).getRotatedRad(PI * (radRate/8));
+
+          // plot-depth
+          // eval-check
+          int plotDepth = 5;
+          FOR(plot, 1, plotDepth+1){
+            float plotRate = (float)plot / (float)plotDepth;
+            float kDistSum = nowDist * nowDistRate;
+          
+            Vector2 asteroPosNow =
+              asteroPos00 + (baseVector * plotRate);
+        
+            // in roop
+            kDistSum +=
+              decideShootTurgetAid(asteroPosNow, myshipPos, i, aStage);
+        
+            // 数が最も多いものを選ぶ
+            if(kDistSum > distSum){
+              distSum = kDistSum;
+              shootPos = asteroPos + (baseVector * plotRate);
+            }
+          }
         }
       }
     }
 
-    return index;
+    return shootPos;
   }
 
 
@@ -203,7 +245,7 @@ void Answer::init(const Stage& aStage)
   /*-------------------------------------*/
   // for evaluation
   // eval-check
-  posPointRate = 179.5;
+  posPointRate = 178;
   edgeRate = 4.35;   // 移動時に端よりを目指すことをどの程度重視するか (1.0 より上に設定)
   nowDistRate = 0.815;  // 現在の予定移動先の射撃優先度
 
@@ -232,10 +274,8 @@ Action Answer::getNextAction(const Stage& aStage)
   restAsteroidNum = aStage.existingAsteroidCount();
   
   if(aStage.ship().canShoot()) { // レーザーが発射できるときは、レーザーを発射する。
-    int index = decideShootTurget(aStage);
-
     // 発射目標にする小惑星
-    Vector2 targetShootPos = aStage.asteroid(index).pos();
+    Vector2 targetShootPos = decideShootTurget(aStage);
     return Action::Shoot(targetShootPos);
   }
   else {  // レーザーが発射できないときは、移動する。
