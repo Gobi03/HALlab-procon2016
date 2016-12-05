@@ -1,1 +1,6 @@
-# HALlab-procon2016
+# ハル研プロコン2015
+問題文
+http://www.hallab.co.jp/progcon/2016/question/
+
+問題パッケージ
+http://www.hallab.co.jp/progcon/2016/question/package/
